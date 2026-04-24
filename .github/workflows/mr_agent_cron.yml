@@ -1,0 +1,29 @@
+name: Mr. Agent Weekly Audit
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Runs every Monday at 09:00 UTC
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+          
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          
+      - name: Run Mr. Agent Weekly Report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python main.py --auto
