@@ -1,0 +1,34 @@
+name: "Mr. Agent Mobile Chat"
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  respond_to_mobile:
+    runs-on: ubuntu-latest
+    
+    # We only trigger this workflow if the issue title starts with "Chat" or "Command"
+    if: startsWith(github.event.issue.title, 'Chat') || startsWith(github.event.issue.title, 'Command')
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+          
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          
+      - name: Formulate AI Response
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          export PYTHONPATH=$(pwd)
+          python src/issue_handler.py
