@@ -144,23 +144,6 @@ def main():
                 print("\n[🤖 SYSTEM] Emergency abort detected. Shutting down.")
                 break
 
-
-    elif args.chat:
-        print("\n[🤖 SYSTEM] Mr. Agent Advisor Protocol Online. Type 'exit' or 'quit' to terminate session.")
-        while True:
-            try:
-                user_input = input("\n👤 Master: ")
-                if user_input.strip().lower() in ['exit', 'quit']:
-                    print("\n[🤖 SYSTEM] Shutting down advisor subsystem. Awaiting your next command.")
-                    break
-                if not user_input.strip(): continue
-                print("\n   [🚀 AGENT] Processing query...")
-                response = ai_assistant.chat_advisor(user_input)
-                print(f"\n🤖 Mr. Agent: {response}")
-            except KeyboardInterrupt:
-                print("\n[🤖 SYSTEM] Emergency abort detected. Shutting down.")
-                break
-
     elif args.profile or not any(vars(args).values()):
         print("\n[🤖 SYSTEM] Mr. Agent booting sequence initialized...")
         print("Run with --auto to enable the full autonomous capability sweep.\n")

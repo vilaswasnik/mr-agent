@@ -6,10 +6,16 @@ def handle_issue_command():
     github_token = os.getenv("GITHUB_TOKEN")
     openai_key = os.getenv("OPENAI_API_KEY")
     repo_name = os.getenv("GITHUB_REPOSITORY")
-    issue_number = int(os.getenv("ISSUE_NUMBER"))
+    issue_number_str = os.getenv("ISSUE_NUMBER")
 
-    if not all([github_token, openai_key, repo_name, issue_number]):
+    if not all([github_token, openai_key, repo_name, issue_number_str]):
         print("Missing required environment variables for issue handler.")
+        return
+
+    try:
+        issue_number = int(issue_number_str)
+    except ValueError:
+        print(f"Invalid ISSUE_NUMBER value: {issue_number_str!r}. ISSUE_NUMBER must be a positive integer.")
         return
 
     g = Github(github_token)

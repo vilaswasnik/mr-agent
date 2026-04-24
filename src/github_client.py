@@ -1,3 +1,5 @@
+import base64
+import time
 from github import Github
 from github.GithubException import UnknownObjectException
 
@@ -75,7 +77,6 @@ class GitHubManager:
         try:
             repo = self.github.get_repo(f"{self.user.login}/{repo_name}")
             file_content = repo.get_contents(file_path)
-            import base64
             return base64.b64decode(file_content.content).decode('utf-8')
         except Exception as e:
             print(f"Could not get file {file_path} from {repo_name}: {e}")
@@ -91,7 +92,6 @@ class GitHubManager:
             return None
 
     def create_fix_pr(self, repo_obj, file_path, new_content):
-        import time
         default_branch = repo_obj.default_branch
         ref = repo_obj.get_git_ref(f"heads/{default_branch}")
         
