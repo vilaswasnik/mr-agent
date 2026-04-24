@@ -1,6 +1,7 @@
 import os
 from github import Github
 from src.ai_client import AIAssistant
+from src.github_client import GitHubManager
 
 def handle_issue_command():
     github_token = os.getenv("GITHUB_TOKEN")
@@ -13,25 +14,71 @@ def handle_issue_command():
         return
 
     g = Github(github_token)
+    gh_manager = GitHubManager(github_token)
+    ai_assistant = AIAssistant(openai_key)
+    
     repo = g.get_repo(repo_name)
     issue = repo.get_issue(number=issue_number)
     
-    # We only process issues that start with a specific format or label
-    # E.g., title starts with "Command: " or "Chat: "
-    user_input = f"Title: {issue.title}\nBody: {issue.body}"
-    print(f"Processing issue command for Issue #{issue_number}: {issue.title}")
+    title_lower = issue.title.strip().lower()
+    body = issue.body if issue.body else ""
+    
+    response_text = ""
+    
+    # Parse remote commands
+    if title_lower.startswith("command: fix"):
+        parts = issue.title.split()
+        if len(parts) >= 4:
+            target_repo = parts[2]
+            file_path = parts[3]
+            code = gh_manager.get_file_content(target_repo, file_path)
+            if code:
+                fixed_code = ai_assistant.fix_code(code, file_path)
+                repo_obj = g.get_repo(f"{gh_manager.user.login}/{target_repo}")
+                pr_url = gh_manager.create_fix_pr(repo_obj, file_path, fixed_code)
+                if pr_url:
+                     response_text = f"✅ **SUCCESS:** Autonomous repair initiated remotely. I have rewritten `{file_path}` and deployed a payload here: {pr_url}"
+                else:
+                     response_text = "❌ **SYSTEM ERROR:** Failed to deploy PR payload. Branch might already exist or there is a permissions issue."
+            else:
+                response_text = f"❌ **SYSTEM ERROR:** Could not locate `{file_path}` in `{target_repo}`."
+        else:
+            response_text = "⚠️ **Invalid syntax.** Use: `Command: fix <repo> <file_path>`"
+            
+    elif title_lower.startswith("command: review"):
+        parts = issue.title.split()
+        if len(parts) >= 4:
+            target_repo = parts[2]
+            file_path = parts[3]
+            code = gh_manager.get_file_content(target_repo, file_path)
+            if code:
+                review = ai_assistant.review_code(code, file_path)
+                response_text = f"🕵️‍♂️ **Remote Review for `{file_path}` in `{target_repo}`:**\n\n{review}"
+            else:
+                response_text = f"❌ **SYSTEM ERROR:** Could not locate `{file_path}` in `{target_repo}`."
+        else:
+            response_text = "⚠️ **Invalid syntax.** Use: `Command: review <repo> <file_path>`"
+            
+    elif title_lower.startswith("command: fetch"):
+        parts = issue.title.split()
+        if len(parts) >= 4:
+            target_repo = parts[2]
+            file_path = parts[3]
+            code = gh_manager.get_file_content(target_repo, file_path)
+            if code:
+                response_text = f"📄 **Contents of `{file_path}` in `{target_repo}`:**\n\n```\n{code[:4000]}\n```\n*(Truncated if exceedingly large)*"
+            else:
+                response_text = f"❌ **SYSTEM ERROR:** Could not locate `{file_path}` in `{target_repo}`."
+        else:
+            response_text = "⚠️ **Invalid syntax.** Use: `Command: fetch <repo> <file_path>`"
 
-    ai_assistant = AIAssistant(openai_key)
-    
-    # Respond using the chat_advisor logic
-    # We prefix a context to ensure the AI knows it's replying in a GitHub issue
-    context_prefix = "The user is talking to you by opening a GitHub Issue from their mobile device. Respond directly to their request or question in a markdown format suitable for a GitHub issue comment.\n\n"
-    
-    response = ai_assistant.chat_advisor(context_prefix + user_input)
-    
-    # Add a signature
-    final_comment = response + "\n\n---\n*🤖 Beep boop. I am Mr. Agent, responding from the cloud. Close this issue when you are satisfied with my response.*"
-    
+    else:
+        # Default Chat / Advisor Mode
+        user_input = f"Title: {issue.title}\nBody: {body}"
+        context_prefix = "The user is communicating securely from a remote mobile device. Respond directly with high intelligence, offering action plans or troubleshooting steps.\n\n"
+        response_text = ai_assistant.chat_advisor(context_prefix + user_input)
+
+    final_comment = response_text + "\n\n---\n*🤖 Beep boop. Action authorized and executed via remote protocol.*"
     issue.create_comment(final_comment)
     print(f"Successfully posted comment to Issue #{issue_number}")
 
