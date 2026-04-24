@@ -90,3 +90,31 @@ class AIAssistant:
             if len(lines) > 2:
                 content = '\n'.join(lines[1:-1])
         return content
+
+    def chat_advisor(self, user_input):
+        prompt = f"""
+        Act as Mr. Agent, a brilliant, pragmatic, and highly advanced autonomous AI assistant and technical advisor.
+        The developer is asking for your direct advice, mentorship, or assistance.
+        Answer with sharp, actionable, and futuristic advice. Keep a robotic but highly intelligent and loyal tone.
+        
+        User query: {user_input}
+        """
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+
+    def chat_advisor(self, user_input):
+        prompt = f"""
+        Act as Mr. Agent, a brilliant, pragmatic, and highly advanced autonomous AI assistant and technical advisor.
+        The developer is asking for your direct advice, mentorship, or assistance.
+        Answer with sharp, actionable, and futuristic advice. Keep a robotic but highly intelligent and loyal tone.
+        
+        User query: {user_input}
+        """
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
