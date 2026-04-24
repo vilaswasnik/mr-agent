@@ -1,0 +1,41 @@
+name: Weekly Mr. Agent Report
+
+on:
+  schedule:
+    # Runs every Friday at 09:00 UTC
+    - cron: "0 9 * * 5"
+  workflow_dispatch:
+    inputs:
+      username:
+        description: "GitHub username to analyse (defaults to repo owner)"
+        required: false
+        default: ""
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Mr. Agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # Optional: set OPENAI_API_KEY secret for AI-powered project ideas
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Override the analysed username when triggered manually
+          MR_AGENT_USERNAME: ${{ github.event.inputs.username }}
+        run: python src/mr_agent.py
