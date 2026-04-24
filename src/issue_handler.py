@@ -25,8 +25,50 @@ def handle_issue_command():
     
     response_text = ""
     
-    # Parse remote commands
-    if title_lower.startswith("command: fix"):
+    if title_lower.startswith("command: update"):
+        # Format: "Command: update <repo> <file_path>"
+        # The body of the issue contains the PROMPT explaining WHAT to change in the file.
+        parts = issue.title.split()
+        if len(parts) >= 4:
+            target_repo = parts[2]
+            file_path = parts[3]
+            code = gh_manager.get_file_content(target_repo, file_path)
+            
+            if code:
+                # Custom AI call to update code based on the user's issue body (the prompt)
+                update_prompt = f"""
+                Act as an autonomous AI engineer updating a file.
+                The user has requested the following change: "{body}"
+                
+                Apply this change to the following code from the file '{file_path}'.
+                CRITICAL INSTRUCTION: Output ONLY the raw corrected code. Do NOT wrap in markdown code blocks like ```javascript or ```python. Do NOT include any explanations. Just the raw code text that can be directly written to the file.
+                
+                Code to update:
+                {code}
+                """
+                response = ai_assistant.client.chat.completions.create(
+                    model=ai_assistant.model,
+                    messages=[{"role": "user", "content": update_prompt}]
+                )
+                updated_code = response.choices[0].message.content.strip()
+                if updated_code.startswith("```"):
+                    lines = updated_code.split('\n')
+                    if len(lines) > 2:
+                        updated_code = '\n'.join(lines[1:-1])
+                        
+                repo_obj = g.get_repo(f"{gh_manager.user.login}/{target_repo}")
+                pr_url = gh_manager.create_fix_pr(repo_obj, file_path, updated_code)
+                
+                if pr_url:
+                     response_text = f"✅ **SUCCESS:** Autonomous modification initiated remotely. I have updated `{file_path}` according to your instructions and deployed a payload here: {pr_url}"
+                else:
+                     response_text = "❌ **SYSTEM ERROR:** Failed to deploy PR payload. Branch might already exist or there is a permissions issue."
+            else:
+                response_text = f"❌ **SYSTEM ERROR:** Could not locate `{file_path}` in `{target_repo}`."
+        else:
+            response_text = "⚠️ **Invalid syntax.** Use: `Command: update <repo> <file_path>`"
+            
+    elif title_lower.startswith("command: fix"):
         parts = issue.title.split()
         if len(parts) >= 4:
             target_repo = parts[2]
