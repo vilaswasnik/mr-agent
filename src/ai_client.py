@@ -74,7 +74,7 @@ class AIAssistant:
         Act as Mr. Agent, an autonomous code-correction AI.
         Review and FIX the following code from '{filename}'.
         Resolve security vulnerabilities, optimize performance, and improve readability.
-        CRITICAL INSTRUCTION: Output ONLY the raw corrected code. Do NOT wrap in markdown code blocks like ```python. Do NOT include any explanations. Just the raw code text that can be directly written to the file.
+        CRITICAL INSTRUCTION: Output ONLY the raw corrected code. Do NOT wrap in markdown code blocks like \`python. Do NOT include any explanations. Just the raw code text that can be directly written to the file.
         
         Code:
         {code_snippet}
