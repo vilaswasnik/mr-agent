@@ -4,6 +4,8 @@ import json
 from dotenv import load_dotenv
 from src.github_client import GitHubManager
 from src.ai_client import AIAssistant
+from src.agents import Orchestrator
+from src import memory as mem
 
 load_dotenv(override=True)
 
@@ -26,10 +28,12 @@ if not github_token or not openai_key or github_token.startswith("your_github"):
 
 @st.cache_resource
 def init_clients():
-    return GitHubManager(github_token), AIAssistant(openai_key)
+    gh = GitHubManager(github_token)
+    ai = AIAssistant(openai_key)
+    return gh, ai, Orchestrator(gh, ai)
 
 try:
-    gh_manager, ai_assistant = init_clients()
+    gh_manager, ai_assistant, orchestrator = init_clients()
 except Exception as e:
     st.error(f"Failed to connect: {e}")
     st.stop()
@@ -40,7 +44,17 @@ TOOLS = [
     {"type":"function","function":{"name":"review_code","description":"Review a specific file in a repo and return feedback.","parameters":{"type":"object","properties":{"repo":{"type":"string"},"file_path":{"type":"string"}},"required":["repo","file_path"]}}},
     {"type":"function","function":{"name":"fix_file","description":"Fix issues in a file and create a Pull Request.","parameters":{"type":"object","properties":{"repo":{"type":"string"},"file_path":{"type":"string"}},"required":["repo","file_path"]}}},
     {"type":"function","function":{"name":"analyze_profile","description":"Analyze GitHub profile and suggest improvements and new project ideas.","parameters":{"type":"object","properties":{},"required":[]}}},
-    {"type":"function","function":{"name":"audit_repos","description":"Audit all repos for missing READMEs and descriptions, auto-fix them.","parameters":{"type":"object","properties":{},"required":[]}}}
+        {"type":"function","function":{"name":"audit_repos","description":"Audit all repos for missing READMEs and descriptions, auto-fix them.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"triage_issues","description":"Triage open issues across all repos: classify, label, and comment with priority.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"review_open_prs","description":"AI-review all open PRs and post code review comments.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"stale_pr_cleanup","description":"Detect and comment on PRs inactive for 30+ days.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"generate_tests","description":"Generate unit tests for source files missing test coverage and open PRs.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"check_dependencies","description":"Audit dependency files for outdated/vulnerable packages and open update PRs.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"fix_issue_pr","description":"Autonomously fix bug issues by writing code and opening a PR.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"self_reflect","description":"Run self-reflection on the last run log and post insights as a GitHub issue.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"run_task","description":"Run a natural-language goal using the multi-agent planner.","parameters":{"type":"object","properties":{"goal":{"type":"string","description":"The goal to accomplish"}},"required":["goal"]}}}
+    ,{"type":"function","function":{"name":"run_mid_mode","description":"Run Mid mode autonomous sweep: triage issues, stale PR cleanup, PR reviews, dependency checks.","parameters":{"type":"object","properties":{"dry_run":{"type":"boolean"},"max_prs":{"type":"integer"},"max_comments":{"type":"integer"}},"required":[]}}}
+    ,{"type":"function","function":{"name":"run_advanced_mode","description":"Run Advanced autonomous sweep: Mid mode + issue fix PRs + test generation + self-reflection.","parameters":{"type":"object","properties":{"dry_run":{"type":"boolean"},"max_prs":{"type":"integer"},"max_comments":{"type":"integer"}},"required":[]}}}
 ]
 
 def execute_tool(name, args):
@@ -82,6 +96,57 @@ def execute_tool(name, args):
                 gh_manager.update_repo_description(repo["obj"], desc)
                 results.append(f"Description updated for `{repo['name']}`: {desc}")
         return "\n".join(results) if results else "All repositories are in good shape!"
+    elif name == "triage_issues":
+        results = orchestrator.run_triage()
+        return "\n".join(results) if results else "No untriaged issues found."
+    elif name == "review_open_prs":
+        results = orchestrator.run_pr_reviews()
+        return "\n".join(results) if results else "No open PRs found."
+    elif name == "stale_pr_cleanup":
+        results = orchestrator.run_stale_pr_cleanup()
+        return "\n".join(results) if results else "No stale PRs found."
+    elif name == "generate_tests":
+        results = orchestrator.run_test_generation()
+        return "\n".join(results) if results else "All source files already have tests or none detected."
+    elif name == "check_dependencies":
+        results = orchestrator.run_dependency_check()
+        return "\n".join(results) if results else "All dependencies are up to date."
+    elif name == "fix_issue_pr":
+        results = orchestrator.run_issue_fix_pipeline()
+        return "\n".join(results) if results else "No fixable bug issues found."
+    elif name == "self_reflect":
+        reflection, issue_url = orchestrator.run_self_reflection(ai_assistant)
+        return f"{reflection}\n\nIssue: {issue_url}"
+    elif name == "run_task":
+        plan, results = orchestrator.run_natural_language_task(args["goal"], ai_assistant)
+        plan_text = "\n".join(f"Step {s.get('step')}: {s.get('tool')} — {s.get('reason')}" for s in plan)
+        result_text = "\n".join(results)
+        return f"**Plan:**\n{plan_text}\n\n**Results:**\n{result_text}"
+    elif name == "run_mid_mode":
+        local = Orchestrator(
+            gh_manager,
+            ai_assistant,
+            dry_run=args.get("dry_run", False),
+            max_prs=max(0, int(args.get("max_prs", 5))),
+            max_comments=max(0, int(args.get("max_comments", 20))),
+        )
+        actions = local.run_mid_mode()
+        return "\n".join(actions) if actions else "Mid mode completed. No actions needed."
+    elif name == "run_advanced_mode":
+        local = Orchestrator(
+            gh_manager,
+            ai_assistant,
+            dry_run=args.get("dry_run", False),
+            max_prs=max(0, int(args.get("max_prs", 5))),
+            max_comments=max(0, int(args.get("max_comments", 20))),
+        )
+        result = local.run_advanced_mode(include_reflection=True)
+        actions = result.get("actions", [])
+        reflection_issue = result.get("reflection_issue")
+        text = "\n".join(actions) if actions else "Advanced mode completed. No actions needed."
+        if reflection_issue:
+            text += f"\n\nSelf-reflection issue: {reflection_issue}"
+        return text
     return "Unknown tool."
 
 def run_agent(user_message, history):
