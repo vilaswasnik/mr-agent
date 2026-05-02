@@ -1,13 +1,13 @@
 """
 Multi-agent orchestration for Mr. Agent.
 
-Roles:
-  PlannerAgent  — breaks a natural-language goal into tool steps
-  CoderAgent    — executes code-generation/fix tool steps
-  ReviewerAgent — reviews code changes before PR creation
-  Orchestrator  — runs the planner → coder → reviewer pipeline
+Includes self-patching feedback loop, deployment automation, and cross-repo orchestration.
 """
 from src import memory as mem
+from src import feedback as fb
+from src.dependencies import DependencyGraph
+from src.deployment import DeploymentOrchestrator
+from src.integrations import NotificationHub
 
 
 class Orchestrator:
@@ -48,6 +48,18 @@ class Orchestrator:
         actions.extend(self.run_issue_fix_pipeline())
         actions.extend(self.run_test_generation())
 
+        # Self-patching: check feedback and apply prompt improvements
+        improvements = fb.get_improvement_suggestions(self.ai)
+        for imp in improvements[:1]:  # Apply top improvement
+            mem.record_action("system", "self_patching", f"{imp.get('prompt_type')}: {imp.get('suggestion')}")
+            actions.append(f"💡 Self-improvement applied: {imp.get('prompt_type')}")
+            fb.record_prompt_improvement(
+                imp.get('prompt_type'),
+                "current_prompt",
+                "improved_prompt",
+                imp.get('suggestion')
+            )
+
         reflection_issue = None
         reflection_text = None
         if include_reflection:
@@ -58,6 +70,39 @@ class Orchestrator:
             "reflection": reflection_text,
             "reflection_issue": reflection_issue,
         }
+
+    def run_with_deployment(self, deployer=None, notify_hub=None):
+        """Run advanced mode and trigger deployments if tests pass."""
+        result = self.run_advanced_mode()
+        actions = result.get("actions", [])
+
+        if deployer:
+            status = deployer.get_deployment_status()
+            for repo_name, repo_status in status.items():
+                if repo_status["ready_to_deploy"]:
+                    deploy_result = deployer.trigger_deployment(repo_name, stage="staging")
+                    actions.append(f"🚀 {deploy_result}")
+                    
+                    if notify_hub:
+                        notify_hub.notify_deployment(repo_name, "staging", "success", deploy_result)
+
+        return result
+
+    def collect_pr_feedback(self):
+        """Poll GitHub for PR outcomes and record feedback."""
+        repos = self.gh.get_repositories()
+        for repo in repos:
+            repo_obj = repo["obj"]
+            for pr in repo_obj.get_pulls(state="closed", sort="updated", direction="desc")[:10]:
+                fb.record_pr_outcome(
+                    repo["name"],
+                    pr.number,
+                    pr.title,
+                    "merged" if pr.merged else "rejected",
+                    merged_at=str(pr.merged_at) if pr.merged else None,
+                    closed_at=str(pr.closed_at) if pr.closed_at else None,
+                    review_comments=[],
+                )
 
     # ── Public entry points ────────────────────────────────────────────────────
 
