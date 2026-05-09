@@ -2,10 +2,13 @@ import os
 import shutil
 import argparse
 import time
+import json
+from pathlib import Path
 from dotenv import load_dotenv
 from src.github_client import GitHubManager
 from src.ai_client import AIAssistant
 from src.agents import Orchestrator
+from src.dice_client import DiceClient
 from src import memory as mem
 from datetime import datetime
 
@@ -119,6 +122,20 @@ def run_autonomous_mode(gh_manager, ai_assistant, dry_run=False, max_prs=5, max_
 def main():
     parser = argparse.ArgumentParser(description="Mr. Agent - Your Autonomous GitHub Assistant")
     parser.add_argument('--profile', action='store_true', help="Analyze GitHub profile")
+    parser.add_argument('--manage-profile', action='store_true', help="Generate a job-profile optimization pack from your GitHub signal")
+    parser.add_argument('--platform', type=str, default='Dice', help="Target platform for profile optimization (default: Dice)")
+    parser.add_argument('--target-role', type=str, default='Senior Python Engineer', help="Target role for profile optimization")
+    parser.add_argument('--dice-watch', action='store_true', help="Monitor latest Dice jobs and update apply queue")
+    parser.add_argument('--dice-query', type=str, default='Senior Python Engineer', help="Dice search query")
+    parser.add_argument('--dice-location', type=str, default='Remote', help="Dice location filter")
+    parser.add_argument('--dice-remote', action='store_true', help="Use remote-only Dice search filter")
+    parser.add_argument('--dice-max-results', type=int, default=20, help="Max Dice jobs to parse per run")
+    parser.add_argument('--dice-interval', type=int, default=300, help="Polling interval in seconds for watch loop")
+    parser.add_argument('--dice-cycles', type=int, default=1, help="Number of polling cycles for Dice watch")
+    parser.add_argument('--dice-show-queue', action='store_true', help="Show pending Dice apply queue")
+    parser.add_argument('--dice-mark-applied', type=str, help="Mark a Dice queue job key as applied")
+    parser.add_argument('--dice-profile-text-file', type=str, help="Path to current Dice profile text file for modification suggestions")
+    parser.add_argument('--dice-suggest-mods', action='store_true', help="Suggest profile modifications using latest Dice jobs")
     parser.add_argument('--audit', action='store_true', help="Audit repos for missing files")
     parser.add_argument('--review', type=str, nargs=2, metavar=('REPO', 'FILE_PATH'), help="Review a file")
     parser.add_argument('--fix', type=str, nargs=2, metavar=('REPO', 'FILE_PATH'), help="Fix a file and create PR")
@@ -262,6 +279,111 @@ def main():
         if code:
             print(ai_assistant.review_code(code, file_path))
 
+    elif args.manage_profile:
+        print("\n[🤖 SYSTEM] Building profile optimization pack...")
+        profile_data = gh_manager.get_user_profile()
+        repos = gh_manager.get_repositories()
+        pack = ai_assistant.generate_job_profile_pack(
+            platform=args.platform,
+            target_role=args.target_role,
+            profile_data=profile_data,
+            repos=repos,
+        )
+        output_dir = Path("artifacts") / "profiles"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{args.platform.lower()}_profile_pack.md"
+        output_path = output_dir / filename
+        output_path.write_text(pack, encoding="utf-8")
+        print(f"\n[🤖 SYSTEM] Profile pack ready: {output_path}")
+        print("[🤖 SYSTEM] Tip: Use --target-role to tailor the output to a specific role.")
+
+    elif args.dice_watch:
+        dice = DiceClient()
+        dice.set_preferences(
+            query=args.dice_query,
+            location=args.dice_location,
+            remote=bool(args.dice_remote),
+            auto_queue=True,
+        )
+
+        cycles = max(1, int(args.dice_cycles))
+        interval = max(30, int(args.dice_interval))
+        max_results = max(1, int(args.dice_max_results))
+
+        print("\n[🤖 SYSTEM] Starting Dice watch mode...")
+        print(f"   Query: {args.dice_query}")
+        print(f"   Location: {args.dice_location}")
+        print(f"   Remote only: {bool(args.dice_remote)}")
+        print(f"   Cycles: {cycles} | Interval: {interval}s")
+
+        for cycle in range(1, cycles + 1):
+            try:
+                jobs = dice.fetch_jobs(
+                    query=args.dice_query,
+                    location=args.dice_location,
+                    remote=bool(args.dice_remote),
+                    max_results=max_results,
+                )
+                new_jobs = dice.detect_new_jobs(jobs)
+            except Exception as e:
+                print(f"[ERROR] Dice watch cycle failed: {e}")
+                new_jobs = []
+
+            print(f"\n[🤖 WATCH] Cycle {cycle}/{cycles}: {len(new_jobs)} new jobs")
+            for job in new_jobs[:10]:
+                print(f"   -> {job.get('title')} @ {job.get('company')} | {job.get('url')}")
+
+            if cycle < cycles:
+                time.sleep(interval)
+
+        queue = dice.get_apply_queue("pending_manual_apply")
+        print(f"\n[🤖 SYSTEM] Pending apply queue: {len(queue)}")
+        print("[🤖 SYSTEM] Note: Auto-submit is not supported; jobs are queued for rapid manual apply.")
+
+    elif args.dice_show_queue:
+        dice = DiceClient()
+        queue = dice.get_apply_queue("pending_manual_apply")
+        print(f"\n[🤖 SYSTEM] Pending apply queue: {len(queue)}")
+        for item in queue[:50]:
+            job = item.get("job", {})
+            print(f"   -> key={item.get('key')} | {job.get('title')} @ {job.get('company')} | {job.get('url')}")
+
+    elif args.dice_mark_applied:
+        dice = DiceClient()
+        ok = dice.mark_applied(args.dice_mark_applied)
+        if ok:
+            print(f"\n[🤖 SYSTEM] Marked as applied: {args.dice_mark_applied}")
+        else:
+            print(f"\n[🤖 SYSTEM] Queue key not found: {args.dice_mark_applied}")
+
+    elif args.dice_suggest_mods:
+        dice = DiceClient()
+        profile_text = ""
+        if args.dice_profile_text_file and os.path.exists(args.dice_profile_text_file):
+            profile_text = Path(args.dice_profile_text_file).read_text(encoding="utf-8")
+        jobs = []
+        try:
+            jobs = dice.fetch_jobs(
+                query=args.dice_query,
+                location=args.dice_location,
+                remote=bool(args.dice_remote),
+                max_results=max(1, int(args.dice_max_results)),
+            )
+        except Exception as e:
+            print(f"[WARN] Could not fetch latest Dice jobs for suggestions: {e}")
+
+        suggestions = ai_assistant.suggest_profile_modifications(
+            platform="Dice",
+            target_role=args.target_role,
+            current_profile_text=profile_text,
+            jobs=jobs,
+        )
+        output_dir = Path("artifacts") / "profiles"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / "dice_profile_mod_suggestions.md"
+        output_path.write_text(suggestions, encoding="utf-8")
+        print(f"\n[🤖 SYSTEM] Profile modifications saved: {output_path}")
+
     elif args.chat:
         print("\n[🤖 SYSTEM] Mr. Agent Advisor Online. Type 'exit' to quit.")
         while True:
@@ -278,9 +400,19 @@ def main():
                 print("\n[🤖 SYSTEM] Aborted.")
                 break
 
-    elif args.profile or not any(vars(args).values()):
+    elif args.profile:
+        print("\n[🤖 SYSTEM] Analyzing GitHub profile...")
+        profile_data = gh_manager.get_user_profile()
+        tips = ai_assistant.analyze_profile(profile_data)
+        ideas = ai_assistant.suggest_new_projects(profile_data)
+        print("\n=== Profile Optimizations ===\n")
+        print(tips)
+        print("\n=== Project Ideas ===\n")
+        print(ideas)
+
+    elif not any(vars(args).values()):
         print("\n[🤖 SYSTEM] Mr. Agent booting sequence initialized...")
-        print("Run with --auto for full autonomous sweep, or --help to see all options.\n")
+        print("Run with --auto for full autonomous sweep, --manage-profile for career profile optimization, --dice-watch for job monitoring, or --help to see all options.\n")
 
 
 if __name__ == "__main__":

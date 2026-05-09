@@ -98,6 +98,74 @@ class AIAssistant:
         )
         return response.choices[0].message.content
 
+    def generate_job_profile_pack(self, platform, target_role, profile_data, repos):
+        top_repos = sorted(repos, key=lambda r: r.get("stars", 0), reverse=True)[:8]
+        compact_repos = [
+            {
+                "name": r.get("name"),
+                "description": r.get("description"),
+                "language": r.get("language"),
+                "stars": r.get("stars", 0),
+            }
+            for r in top_repos
+        ]
+
+        prompt = f"""
+        You are Mr. Agent, an elite technical recruiter and profile optimizer.
+        Build a ready-to-paste profile optimization pack for the platform: {platform}.
+
+        Candidate target role: {target_role}
+        GitHub profile data: {json.dumps(profile_data, indent=2)}
+        Top repositories: {json.dumps(compact_repos, indent=2)}
+
+        Return markdown with these exact sections:
+        1) Headline Options (5 options, each <= 110 chars)
+        2) About/Summary (one polished paragraph, 120-180 words)
+        3) Core Skills (30-40 comma-separated keywords optimized for recruiter search)
+        4) Experience Bullets (10 bullets, each starts with a strong action verb and includes impact)
+        5) Projects to Highlight (top 5 projects with one line each)
+        6) Recruiter Search Variants (10 job title variants)
+        7) 14-Day Improvement Plan (day-by-day checklist)
+
+        Constraints:
+        - Keep claims grounded in the provided GitHub data.
+        - Avoid invented employers, degrees, or certifications.
+        - Keep language concise and high signal for technical recruiters.
+        """
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content
+
+    def suggest_profile_modifications(self, platform, target_role, current_profile_text, jobs):
+        sample_jobs = jobs[:8]
+        prompt = f"""
+        You are Mr. Agent, a recruiter-focused profile optimizer.
+        Improve this candidate profile for {platform} based on target role and latest jobs.
+
+        Target role: {target_role}
+        Current profile text:
+        {current_profile_text}
+
+        Latest jobs sample:
+        {json.dumps(sample_jobs, indent=2)}
+
+        Return markdown with sections:
+        1) Priority Gaps (top 5)
+        2) Exact Profile Edits (headline, summary lines, skills additions/removals)
+        3) ATS Keyword Delta (keywords to add now)
+        4) Fast Rewrite (a revised summary paragraph)
+        5) Next 48 Hours Actions
+
+        Keep output concise and actionable.
+        """
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content
+
     # ── NEW: Issue triage ──────────────────────────────────────────────────────
     def triage_issue(self, issue_title, issue_body):
         prompt = f"""

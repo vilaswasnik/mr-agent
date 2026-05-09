@@ -2,3 +2,7 @@ venv/
 .env
 __pycache__/
 *.pyc
+.mr_agent_dice.json
+.mr_agent_feedback.json
+.mr_agent_memory.json
+artifacts/
