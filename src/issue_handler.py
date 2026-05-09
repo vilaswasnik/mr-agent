@@ -173,7 +173,7 @@ def handle_issue_command():
                 response_text = f"❌ **SYSTEM ERROR:** Could not locate `{file_path}` in `{target_repo}`."
         else:
             response_text = "⚠️ **Invalid syntax.** Use: `Command: fetch <repo> <file_path>`"
-    elif "creat new repo" in title_lower or "create new repo" in title_lower:
+    elif re.search(r"\bcreat(?:e)?\s+new\s+repo\b", title_lower):
         repo_name = _build_repo_name(issue.title)
         repo_description = "Book project: 21-day life change plan using daily 10-minute habits."
         readme_content = _build_book_outline_readme()
