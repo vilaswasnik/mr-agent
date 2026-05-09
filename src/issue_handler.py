@@ -1,7 +1,67 @@
 import os
+import re
+import time
 from github import Github
 from src.ai_client import AIAssistant
 from src.github_client import GitHubManager
+
+def _build_repo_name(issue_title):
+    cleaned = re.sub(r"[^a-z0-9]+", "-", issue_title.lower()).strip("-")
+    if not cleaned:
+        cleaned = "life-change-21-days-book"
+    if len(cleaned) > 45:
+        cleaned = cleaned[:45].rstrip("-")
+    return f"{cleaned}-{int(time.time())}"
+
+def _build_book_outline_readme():
+    return """# 21 Days to Change Your Life
+
+## Book Goal
+Build one powerful life habit by practicing **10 minutes daily for 21 days** so the action becomes automatic.
+
+## Core Method
+1. Pick one micro-habit at a time.
+2. Do it at the same time every day for 10 minutes.
+3. Track completion daily.
+4. Keep the action simple and repeatable.
+
+## 21-Day Outline
+
+### Week 1 (Days 1-7): Start Small and Stay Consistent
+- Focus: show up every day.
+- Daily task: 10 minutes of your selected habit.
+- End-of-week check: what helped you stay consistent?
+
+### Week 2 (Days 8-14): Strengthen the Pattern
+- Focus: remove friction and improve quality.
+- Daily task: same 10-minute slot, same trigger.
+- End-of-week check: which distractions must be removed?
+
+### Week 3 (Days 15-21): Lock It Into Identity
+- Focus: become the kind of person who does this naturally.
+- Daily task: 10 minutes + 1 minute reflection.
+- End-of-week check: how has this changed your thinking and routine?
+
+## 10-Minute Habit Ideas
+- Reading
+- Walking
+- Journaling
+- Breathwork / meditation
+- Stretching
+- Skill practice
+- Gratitude notes
+- Planning tomorrow
+
+## Daily Tracking Template
+- Day:
+- Habit:
+- Start time:
+- Completed (Yes/No):
+- One line reflection:
+
+## Next Iteration
+After day 21, keep this habit and start a second 10-minute habit using the same structure.
+"""
 
 def handle_issue_command():
     github_token = os.getenv("GITHUB_TOKEN")
@@ -113,6 +173,29 @@ def handle_issue_command():
                 response_text = f"❌ **SYSTEM ERROR:** Could not locate `{file_path}` in `{target_repo}`."
         else:
             response_text = "⚠️ **Invalid syntax.** Use: `Command: fetch <repo> <file_path>`"
+    elif "creat new repo" in title_lower or "create new repo" in title_lower:
+        repo_name = _build_repo_name(issue.title)
+        repo_description = "Book project: 21-day life change plan using daily 10-minute habits."
+        readme_content = _build_book_outline_readme()
+        try:
+            new_repo = g.get_user().create_repo(
+                name=repo_name,
+                description=repo_description,
+                auto_init=True,
+            )
+            readme = new_repo.get_contents("README.md")
+            new_repo.update_file(
+                path="README.md",
+                message="docs: add initial outline for 21-day life change book",
+                content=readme_content,
+                sha=readme.sha,
+            )
+            response_text = (
+                f"✅ **SUCCESS:** Created new repository `{repo_name}`: {new_repo.html_url}\n\n"
+                "I also added an initial README outline for your book with a 21-day structure and daily 10-minute habit framework."
+            )
+        except Exception as e:
+            response_text = f"❌ **SYSTEM ERROR:** Failed to create repository payload. Details: {e}"
 
     else:
         # Default Chat / Advisor Mode
