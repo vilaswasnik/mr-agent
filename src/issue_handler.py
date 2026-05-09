@@ -181,21 +181,19 @@ def handle_issue_command():
             new_repo = g.get_user().create_repo(
                 name=repo_name,
                 description=repo_description,
-                auto_init=True,
+                auto_init=False,
             )
-            readme = new_repo.get_contents("README.md")
-            new_repo.update_file(
+            new_repo.create_file(
                 path="README.md",
                 message="docs: add initial outline for 21-day life change book",
                 content=readme_content,
-                sha=readme.sha,
             )
             response_text = (
                 f"✅ **SUCCESS:** Created new repository `{repo_name}`: {new_repo.html_url}\n\n"
                 "I also added an initial README outline for your book with a 21-day structure and daily 10-minute habit framework."
             )
         except Exception as e:
-            response_text = f"❌ **SYSTEM ERROR:** Failed to create repository payload. Details: {e}"
+            response_text = f"❌ **SYSTEM ERROR:** Failed to create repository or add README. Details: {e}"
 
     else:
         # Default Chat / Advisor Mode
