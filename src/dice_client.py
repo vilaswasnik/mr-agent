@@ -152,6 +152,74 @@ class DiceClient:
             )
         return jobs
 
+    def _extract_jobposting_json_ld(self, html: str) -> Dict[str, str]:
+        for block in re.findall(r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL):
+            payload = unescape(block).strip()
+            if not payload:
+                continue
+            try:
+                data = json.loads(payload)
+            except Exception:
+                continue
+
+            candidates = data if isinstance(data, list) else [data]
+            for item in candidates:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("@type", "")).lower() != "jobposting":
+                    continue
+
+                title = str(item.get("title") or "").strip()
+                company = "Unknown"
+                org = item.get("hiringOrganization")
+                if isinstance(org, dict):
+                    company = str(org.get("name") or "Unknown")
+
+                location = "Unknown"
+                loc = item.get("jobLocation")
+                if isinstance(loc, list) and loc:
+                    loc = loc[0]
+                if isinstance(loc, dict):
+                    addr = loc.get("address")
+                    if isinstance(addr, dict):
+                        parts = [
+                            str(addr.get("addressLocality") or "").strip(),
+                            str(addr.get("addressRegion") or "").strip(),
+                            str(addr.get("addressCountry") or "").strip(),
+                        ]
+                        parts = [p for p in parts if p]
+                        if parts:
+                            location = ", ".join(parts)
+
+                posted = str(item.get("datePosted") or "Unknown")
+                return {
+                    "title": title or "Unknown",
+                    "company": company or "Unknown",
+                    "location": location,
+                    "posted": posted,
+                }
+        return {}
+
+    def _enrich_job_from_detail(self, job: Dict[str, str]) -> Dict[str, str]:
+        url = str(job.get("url") or "")
+        if not url:
+            return job
+        try:
+            html = self._download_html(url)
+        except Exception:
+            return job
+
+        meta = self._extract_jobposting_json_ld(html)
+        if not meta:
+            return job
+
+        for key in ("title", "company", "location", "posted"):
+            existing = str(job.get(key) or "").strip()
+            replacement = str(meta.get(key) or "").strip()
+            if (not existing or existing == "Unknown" or existing in {"Easy Apply", "Apply Now"}) and replacement:
+                job[key] = replacement
+        return job
+
     def fetch_jobs(self, query: str, location: str, remote: bool, max_results: int = 20) -> List[Dict[str, str]]:
         url = self.build_search_url(query, location, remote)
         html = self._download_html(url)
@@ -168,7 +236,16 @@ class DiceClient:
                 continue
             seen_keys.add(key)
             deduped.append(job)
-        return deduped[:max_results]
+
+        # Enrich incomplete jobs (often rendered as "Easy Apply" in listing anchors).
+        out = []
+        for job in deduped[:max_results]:
+            title = str(job.get("title") or "")
+            company = str(job.get("company") or "")
+            if title in {"Easy Apply", "Apply Now"} or company in {"", "Unknown"}:
+                job = self._enrich_job_from_detail(job)
+            out.append(job)
+        return out
 
     def _job_key(self, job: Dict[str, str]) -> str:
         return str(job.get("id") or job.get("url") or f"{job.get('title')}|{job.get('company')}")
