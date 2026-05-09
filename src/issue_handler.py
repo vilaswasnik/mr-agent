@@ -5,12 +5,14 @@ from github import Github
 from src.ai_client import AIAssistant
 from src.github_client import GitHubManager
 
+MAX_REPO_NAME_BASE_LENGTH = 45  # keeps room for a timestamp suffix
+
 def _build_repo_name(issue_title):
     cleaned = re.sub(r"[^a-z0-9]+", "-", issue_title.lower()).strip("-")
     if not cleaned:
         cleaned = "life-change-21-days-book"
-    if len(cleaned) > 45:
-        cleaned = cleaned[:45].rstrip("-")
+    if len(cleaned) > MAX_REPO_NAME_BASE_LENGTH:
+        cleaned = cleaned[:MAX_REPO_NAME_BASE_LENGTH].rstrip("-")
     return f"{cleaned}-{int(time.time())}"
 
 def _build_book_outline_readme():
@@ -173,7 +175,7 @@ def handle_issue_command():
                 response_text = f"❌ **SYSTEM ERROR:** Could not locate `{file_path}` in `{target_repo}`."
         else:
             response_text = "⚠️ **Invalid syntax.** Use: `Command: fetch <repo> <file_path>`"
-    elif re.search(r"\bcreat(?:e)?\s+new\s+repo\b", title_lower):
+    elif title_lower.startswith("creat new repo") or title_lower.startswith("create new repo"):
         repo_name = _build_repo_name(issue.title)
         repo_description = "Book project: 21-day life change plan using daily 10-minute habits."
         readme_content = _build_book_outline_readme()
@@ -181,12 +183,14 @@ def handle_issue_command():
             new_repo = g.get_user().create_repo(
                 name=repo_name,
                 description=repo_description,
-                auto_init=False,
+                auto_init=True,
             )
-            new_repo.create_file(
+            readme = new_repo.get_contents("README.md")
+            new_repo.update_file(
                 path="README.md",
                 message="docs: add initial outline for 21-day life change book",
                 content=readme_content,
+                sha=readme.sha,
             )
             response_text = (
                 f"✅ **SUCCESS:** Created new repository `{repo_name}`: {new_repo.html_url}\n\n"
