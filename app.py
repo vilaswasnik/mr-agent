@@ -6,6 +6,7 @@ from src.github_client import GitHubManager
 from src.ai_client import AIAssistant
 from src.agents import Orchestrator
 from src import memory as mem
+from src.dice_client import DiceClient
 
 load_dotenv(override=True)
 
@@ -34,6 +35,7 @@ def init_clients():
 
 try:
     gh_manager, ai_assistant, orchestrator = init_clients()
+    dice_client = DiceClient()
 except Exception as e:
     st.error(f"Failed to connect: {e}")
     st.stop()
@@ -44,6 +46,8 @@ TOOLS = [
     {"type":"function","function":{"name":"review_code","description":"Review a specific file in a repo and return feedback.","parameters":{"type":"object","properties":{"repo":{"type":"string"},"file_path":{"type":"string"}},"required":["repo","file_path"]}}},
     {"type":"function","function":{"name":"fix_file","description":"Fix issues in a file and create a Pull Request.","parameters":{"type":"object","properties":{"repo":{"type":"string"},"file_path":{"type":"string"}},"required":["repo","file_path"]}}},
     {"type":"function","function":{"name":"analyze_profile","description":"Analyze GitHub profile and suggest improvements and new project ideas.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"get_dice_apply_queue","description":"Return pending Dice apply queue entries from local state.","parameters":{"type":"object","properties":{"limit":{"type":"integer","description":"Maximum queue items to return"}},"required":[]}}},
+    {"type":"function","function":{"name":"rank_dice_apply_queue","description":"Rank pending Dice apply queue by fastest submission first (Easy Apply first), then recency.","parameters":{"type":"object","properties":{"limit":{"type":"integer","description":"Maximum ranked entries to return"}},"required":[]}}},
         {"type":"function","function":{"name":"audit_repos","description":"Audit all repos for missing READMEs and descriptions, auto-fix them.","parameters":{"type":"object","properties":{},"required":[]}}},
     {"type":"function","function":{"name":"triage_issues","description":"Triage open issues across all repos: classify, label, and comment with priority.","parameters":{"type":"object","properties":{},"required":[]}}},
     {"type":"function","function":{"name":"review_open_prs","description":"AI-review all open PRs and post code review comments.","parameters":{"type":"object","properties":{},"required":[]}}},
@@ -83,6 +87,52 @@ def execute_tool(name, args):
         tips = ai_assistant.analyze_profile(profile)
         ideas = ai_assistant.suggest_new_projects(profile)
         return f"Profile Optimizations:\n{tips}\n\nProject Ideas:\n{ideas}"
+    elif name == "get_dice_apply_queue":
+        limit = max(1, int(args.get("limit", 50)))
+        queue = dice_client.get_apply_queue("pending_manual_apply")[:limit]
+        rows = []
+        for item in queue:
+            job = item.get("job", {})
+            rows.append(
+                {
+                    "queue_key": item.get("key"),
+                    "title": job.get("title", "Unknown"),
+                    "company": job.get("company", "Unknown"),
+                    "location": job.get("location", "Unknown"),
+                    "url": job.get("url", ""),
+                    "created_at": item.get("created_at", 0),
+                }
+            )
+        return json.dumps({"pending_count": len(dice_client.get_apply_queue("pending_manual_apply")), "items": rows}, indent=2)
+    elif name == "rank_dice_apply_queue":
+        limit = max(1, int(args.get("limit", 10)))
+        queue = dice_client.get_apply_queue("pending_manual_apply")
+        ranked = []
+        for item in queue:
+            job = item.get("job", {})
+            title = str(job.get("title", "")).lower()
+            score = 0
+            if "easy apply" in title:
+                score += 100
+            elif "apply now" in title:
+                score += 80
+            else:
+                score += 50
+            score += int(item.get("created_at", 0)) // 100000
+            ranked.append((score, item))
+        ranked.sort(key=lambda x: x[0], reverse=True)
+        out = []
+        for _, item in ranked[:limit]:
+            job = item.get("job", {})
+            out.append(
+                {
+                    "queue_key": item.get("key"),
+                    "title": job.get("title", "Unknown"),
+                    "company": job.get("company", "Unknown"),
+                    "url": job.get("url", ""),
+                }
+            )
+        return json.dumps({"pending_count": len(queue), "ranked": out}, indent=2)
     elif name == "audit_repos":
         repos = gh_manager.get_repositories()
         results = []
