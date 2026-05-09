@@ -7,7 +7,7 @@ from src.github_client import GitHubManager
 
 MAX_REPO_NAME_BASE_LENGTH = 45  # keeps room for a timestamp suffix
 
-def _build_repo_name(issue_title):
+def _build_unique_repo_name(issue_title):
     cleaned = re.sub(r"[^a-z0-9]+", "-", issue_title.lower()).strip("-")
     if not cleaned:
         cleaned = "life-change-21-days-book"
@@ -176,7 +176,7 @@ def handle_issue_command():
         else:
             response_text = "⚠️ **Invalid syntax.** Use: `Command: fetch <repo> <file_path>`"
     elif title_lower.startswith("creat new repo") or title_lower.startswith("create new repo"):
-        repo_name = _build_repo_name(issue.title)
+        repo_name = _build_unique_repo_name(issue.title)
         repo_description = "Book project: 21-day life change plan using daily 10-minute habits."
         readme_content = _build_book_outline_readme()
         try:
@@ -185,7 +185,15 @@ def handle_issue_command():
                 description=repo_description,
                 auto_init=True,
             )
-            readme = new_repo.get_contents("README.md")
+            readme = None
+            for _ in range(3):
+                try:
+                    readme = new_repo.get_contents("README.md")
+                    break
+                except Exception:
+                    time.sleep(1)
+            if not readme:
+                raise RuntimeError("README.md was not available after repository initialization.")
             new_repo.update_file(
                 path="README.md",
                 message="docs: add initial outline for 21-day life change book",
