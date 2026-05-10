@@ -18,10 +18,25 @@ st.set_page_config(page_title="Mr. Agent", page_icon="🤖", layout="wide")
 def load_credentials():
     """Load user credentials from credentials.json"""
     creds_file = Path("credentials.json")
-    if creds_file.exists():
-        with open(creds_file) as f:
-            return json.load(f).get("users", {})
-    return {}
+    
+    # If credentials.json doesn't exist, create from template or use default
+    if not creds_file.exists():
+        template_file = Path("credentials.json.example")
+        if template_file.exists():
+            # Copy from template
+            with open(template_file) as f:
+                creds = json.load(f)
+        else:
+            # Create default
+            creds = {"users": {"admin": "change_me_after_first_login"}}
+        
+        # Save credentials.json
+        with open(creds_file, "w") as f:
+            json.dump(creds, f, indent=2)
+    
+    # Load and return credentials
+    with open(creds_file) as f:
+        return json.load(f).get("users", {})
 
 def login_page():
     """Display login page"""
