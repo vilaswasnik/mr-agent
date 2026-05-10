@@ -21,6 +21,9 @@ st.set_page_config(page_title="Mr. Agent", page_icon="🤖", layout="wide")
 MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_SECONDS = int(os.getenv("LOGIN_LOCKOUT_SECONDS", "300"))
 PBKDF2_ITERATIONS = int(os.getenv("PASSWORD_HASH_ITERATIONS", "120000"))
+APP_ADMIN_USERNAME = os.getenv("APP_ADMIN_USERNAME", "").strip()
+APP_ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "")
+APP_ADMIN_PASSWORD_HASH = os.getenv("APP_ADMIN_PASSWORD_HASH", "").strip()
 
 
 def _hash_password(password):
@@ -83,6 +86,15 @@ def load_credentials():
 
 
 def _authenticate_user(username, password):
+    # Primary auth source for production: Render environment variables.
+    if APP_ADMIN_USERNAME:
+        if username != APP_ADMIN_USERNAME:
+            return False
+        if APP_ADMIN_PASSWORD_HASH:
+            return _verify_password(password, APP_ADMIN_PASSWORD_HASH)
+        if APP_ADMIN_PASSWORD:
+            return hmac.compare_digest(password, APP_ADMIN_PASSWORD)
+
     users = load_credentials()
     stored = users.get(username)
     if not stored:
