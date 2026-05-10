@@ -3,6 +3,7 @@ import os
 import json
 from dotenv import load_dotenv
 from pathlib import Path
+from io import BytesIO
 import hashlib
 import hmac
 import time
@@ -416,6 +417,38 @@ def run_agent(user_message, history):
         else:
             return msg.content
 
+
+def extract_resume_text(uploaded_file):
+    """Extract plain text from uploaded resume files."""
+    suffix = Path(uploaded_file.name).suffix.lower()
+    raw = uploaded_file.getvalue()
+
+    if suffix in {".txt", ".md"}:
+        try:
+            return raw.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            return raw.decode("latin-1", errors="ignore").strip()
+
+    if suffix == ".pdf":
+        try:
+            from pypdf import PdfReader
+        except Exception as exc:
+            raise RuntimeError("PDF support requires 'pypdf'.") from exc
+        reader = PdfReader(BytesIO(raw))
+        pages = [page.extract_text() or "" for page in reader.pages]
+        return "\n".join(pages).strip()
+
+    if suffix == ".docx":
+        try:
+            from docx import Document
+        except Exception as exc:
+            raise RuntimeError("DOCX support requires 'python-docx'.") from exc
+        doc = Document(BytesIO(raw))
+        lines = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+        return "\n".join(lines).strip()
+
+    raise ValueError("Unsupported file type. Use .txt, .md, .pdf, or .docx")
+
 # Logout button in sidebar
 with st.sidebar:
     st.write(f"👤 Logged in as: **{st.session_state.get('username', 'user')}**")
@@ -429,6 +462,74 @@ with st.sidebar:
 
 st.title("🤖 Mr. Agent")
 st.markdown("Your autonomous GitHub assistant. Ask me anything about your repos — I can review code, create PRs, audit projects, and more.")
+
+with st.expander("Resume Upload for Dice Job Matching", expanded=False):
+    st.caption("Upload your resume and get targeted Dice profile edits for your role.")
+    target_role = st.text_input(
+        "Target role",
+        value="Red Hat Linux DevOps AI Automation Engineer",
+        key="resume_target_role",
+    )
+    uploaded_resume = st.file_uploader(
+        "Upload resume",
+        type=["txt", "md", "pdf", "docx"],
+        key="resume_uploader",
+    )
+
+    if uploaded_resume is not None:
+        try:
+            resume_text = extract_resume_text(uploaded_resume)
+            if resume_text:
+                st.session_state.resume_text = resume_text
+                preview = resume_text[:1200] + ("..." if len(resume_text) > 1200 else "")
+                st.text_area("Extracted resume preview", value=preview, height=180, disabled=True)
+            else:
+                st.warning("Resume text appears empty after extraction.")
+        except Exception as exc:
+            st.error(f"Could not parse resume: {exc}")
+
+    if st.button("Analyze Resume for Dice", use_container_width=True):
+        resume_text = st.session_state.get("resume_text", "").strip()
+        if not resume_text:
+            st.error("Please upload a valid resume first.")
+        else:
+            with st.spinner("Analyzing resume against Dice demand..."):
+                jobs = []
+                queue = dice_client.get_apply_queue("pending_manual_apply")
+                for item in queue[:20]:
+                    job = item.get("job", {})
+                    jobs.append(
+                        {
+                            "title": job.get("title", ""),
+                            "company": job.get("company", ""),
+                            "location": job.get("location", ""),
+                            "url": job.get("url", ""),
+                        }
+                    )
+
+                if not jobs:
+                    try:
+                        jobs = dice_client.fetch_jobs(
+                            query=target_role,
+                            location="Remote",
+                            remote_only=True,
+                            max_results=20,
+                        )
+                    except Exception:
+                        jobs = []
+
+                suggestions = ai_assistant.suggest_profile_modifications(
+                    platform="Dice",
+                    target_role=target_role,
+                    current_profile_text=resume_text,
+                    jobs=jobs,
+                )
+                st.session_state.resume_suggestions = suggestions
+
+    if st.session_state.get("resume_suggestions"):
+        st.markdown("### Dice Optimization Suggestions")
+        st.markdown(st.session_state["resume_suggestions"])
+
 st.divider()
 
 if "messages" not in st.session_state:
