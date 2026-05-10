@@ -15,6 +15,15 @@ from src.ai_client import AIAssistant
 from src.agents import Orchestrator
 from src import memory as mem
 from src.dice_client import DiceClient
+from src.user_memory_db import (
+    init_db,
+    get_profile,
+    upsert_profile,
+    add_note,
+    list_notes,
+    record_interaction,
+    get_recent_interactions,
+)
 
 
 def _load_runtime_secrets():
@@ -194,6 +203,8 @@ def check_authentication():
         st.stop()
 
 check_authentication()
+
+init_db()
 
 # ================================================================
 
@@ -393,14 +404,54 @@ def execute_tool(name, args):
         return text
     return "Unknown tool."
 
-def run_agent(user_message, history):
+def _build_user_memory_context(username):
+    profile = get_profile(username)
+    recent = get_recent_interactions(username, limit=5)
+
+    profile_lines = [
+        f"Current role: {profile.get('current_role', '').strip() or 'Not set'}",
+        f"Target roles: {profile.get('target_roles', '').strip() or 'Not set'}",
+        f"Preferred locations: {profile.get('preferred_locations', '').strip() or 'Not set'}",
+        f"Core skills: {profile.get('core_skills', '').strip() or 'Not set'}",
+        f"Work style: {profile.get('work_style', '').strip() or 'Not set'}",
+        f"Goals: {profile.get('goals', '').strip() or 'Not set'}",
+    ]
+
+    recent_lines = []
+    for item in recent:
+        um = (item.get("user_message") or "")[:180]
+        if um:
+            recent_lines.append(f"- {um}")
+
+    return (
+        "User Memory Profile:\n"
+        + "\n".join(profile_lines)
+        + "\nRecent user requests:\n"
+        + ("\n".join(recent_lines) if recent_lines else "- No prior requests yet")
+    )
+
+
+def run_agent(user_message, history, user_context=""):
     messages = [
         {"role": "system", "content": (
             "You are Mr. Agent, an elite autonomous GitHub assistant with direct access to the user's GitHub account. "
             "Use your tools to fetch real data, review code, create PRs, and audit repositories. "
             "Always take action when asked — don't just advise. Be concise, sharp, and technical. Use markdown."
         )}
-    ] + history + [{"role": "user", "content": user_message}]
+    ]
+
+    if user_context:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Use this persistent user memory context to personalize responses and recommendations.\n"
+                    + user_context
+                ),
+            }
+        )
+
+    messages = messages + history + [{"role": "user", "content": user_message}]
 
     while True:
         response = ai_assistant.client.chat.completions.create(
@@ -475,6 +526,66 @@ with st.sidebar:
         st.session_state.messages = []
         st.success("Logged out successfully!")
         st.rerun()
+
+    username = st.session_state.get("username", "admin")
+    user_profile = get_profile(username)
+
+    with st.expander("My Memory Profile", expanded=False):
+        current_role = st.text_input(
+            "Current role",
+            value=user_profile.get("current_role", ""),
+            key="profile_current_role",
+        )
+        target_roles = st.text_input(
+            "Target roles",
+            value=user_profile.get("target_roles", ""),
+            key="profile_target_roles",
+        )
+        preferred_locations = st.text_input(
+            "Preferred locations",
+            value=user_profile.get("preferred_locations", ""),
+            key="profile_locations",
+        )
+        core_skills = st.text_area(
+            "Core skills",
+            value=user_profile.get("core_skills", ""),
+            height=90,
+            key="profile_skills",
+        )
+        work_style = st.text_input(
+            "Work style",
+            value=user_profile.get("work_style", ""),
+            key="profile_work_style",
+        )
+        goals = st.text_area(
+            "Career goals",
+            value=user_profile.get("goals", ""),
+            height=90,
+            key="profile_goals",
+        )
+
+        if st.button("Save Profile Memory", use_container_width=True):
+            upsert_profile(
+                username=username,
+                current_role=current_role,
+                target_roles=target_roles,
+                preferred_locations=preferred_locations,
+                core_skills=core_skills,
+                work_style=work_style,
+                goals=goals,
+            )
+            st.success("Profile memory saved.")
+
+        note = st.text_area("Quick note for Mr Agent", height=80, key="profile_note")
+        if st.button("Add Note", use_container_width=True):
+            add_note(username, note)
+            st.success("Note saved to memory.")
+
+        recent_notes = list_notes(username, limit=5)
+        if recent_notes:
+            st.caption("Recent notes")
+            for n in recent_notes:
+                st.markdown(f"- {n['note']}")
 
 st.title("🤖 Mr. Agent")
 st.markdown("Your autonomous GitHub assistant. Ask me anything about your repos — I can review code, create PRs, audit projects, and more.")
@@ -567,7 +678,10 @@ if prompt := st.chat_input("Talk to Mr. Agent..."):
                     for m in st.session_state.messages[:-1]
                     if m["role"] in ("user", "assistant")
                 ]
-                response = run_agent(prompt, history)
+                username = st.session_state.get("username", "admin")
+                context = _build_user_memory_context(username)
+                response = run_agent(prompt, history, user_context=context)
+                record_interaction(username, prompt, response)
             except Exception as e:
                 response = f"Error: {e}"
         st.markdown(response)

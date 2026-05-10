@@ -6,5 +6,6 @@ __pycache__/
 .mr_agent_dice.backup_*.json
 .mr_agent_feedback.json
 .mr_agent_memory.json
+.mr_agent_user.db
 artifacts/
 credentials.json
