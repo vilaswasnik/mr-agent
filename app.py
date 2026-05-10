@@ -4,6 +4,9 @@ import json
 from dotenv import load_dotenv
 from pathlib import Path
 import hashlib
+import hmac
+import time
+import secrets
 from src.github_client import GitHubManager
 from src.ai_client import AIAssistant
 from src.agents import Orchestrator
@@ -15,6 +18,46 @@ load_dotenv(override=True)
 st.set_page_config(page_title="Mr. Agent", page_icon="🤖", layout="wide")
 
 # ==================== LOGIN AUTHENTICATION ====================
+MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
+LOGIN_LOCKOUT_SECONDS = int(os.getenv("LOGIN_LOCKOUT_SECONDS", "300"))
+PBKDF2_ITERATIONS = int(os.getenv("PASSWORD_HASH_ITERATIONS", "120000"))
+
+
+def _hash_password(password):
+    """Return PBKDF2 hash string: pbkdf2_sha256$iters$salt$hash"""
+    salt = secrets.token_hex(16)
+    hashed = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        PBKDF2_ITERATIONS,
+    ).hex()
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${hashed}"
+
+
+def _verify_password(password, stored_value):
+    """Verify plain-text legacy or PBKDF2 hashed credential value."""
+    if stored_value.startswith("pbkdf2_sha256$"):
+        try:
+            _, iter_str, salt, expected = stored_value.split("$", 3)
+            actual = hashlib.pbkdf2_hmac(
+                "sha256",
+                password.encode("utf-8"),
+                salt.encode("utf-8"),
+                int(iter_str),
+            ).hex()
+            return hmac.compare_digest(actual, expected)
+        except ValueError:
+            return False
+    return hmac.compare_digest(password, stored_value)
+
+
+def _save_credentials(users):
+    creds_file = Path("credentials.json")
+    with open(creds_file, "w") as f:
+        json.dump({"users": users}, f, indent=2)
+
+
 def load_credentials():
     """Load user credentials from credentials.json"""
     creds_file = Path("credentials.json")
@@ -38,26 +81,65 @@ def load_credentials():
     with open(creds_file) as f:
         return json.load(f).get("users", {})
 
+
+def _authenticate_user(username, password):
+    users = load_credentials()
+    stored = users.get(username)
+    if not stored:
+        return False
+
+    is_valid = _verify_password(password, stored)
+    if is_valid and not stored.startswith("pbkdf2_sha256$"):
+        # One-time migration from legacy plain text to PBKDF2 hash.
+        users[username] = _hash_password(password)
+        _save_credentials(users)
+
+    return is_valid
+
+
+def _init_login_security_state():
+    if "auth_attempts" not in st.session_state:
+        st.session_state.auth_attempts = 0
+    if "auth_locked_until" not in st.session_state:
+        st.session_state.auth_locked_until = 0
+
 def login_page():
     """Display login page"""
+    _init_login_security_state()
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("🤖 Mr. Agent")
         st.markdown("---")
         st.write("### Login to Continue")
+
+        now = int(time.time())
+        is_locked = now < st.session_state.auth_locked_until
+        if is_locked:
+            wait_seconds = st.session_state.auth_locked_until - now
+            st.error(f"Too many failed attempts. Try again in {wait_seconds} seconds.")
         
         username = st.text_input("Username", key="login_user", placeholder="Enter username")
         password = st.text_input("Password", type="password", key="login_pass", placeholder="Enter password")
         
-        if st.button("Login", use_container_width=True):
-            credentials = load_credentials()
-            if username in credentials and credentials[username] == password:
+        if st.button("Login", use_container_width=True, disabled=is_locked):
+            if _authenticate_user(username, password):
                 st.session_state.authenticated = True
                 st.session_state.username = username
+                st.session_state.auth_attempts = 0
+                st.session_state.auth_locked_until = 0
                 st.success("✅ Login successful!")
                 st.rerun()
             else:
-                st.error("❌ Invalid credentials. Please try again.")
+                st.session_state.auth_attempts += 1
+                remaining = MAX_LOGIN_ATTEMPTS - st.session_state.auth_attempts
+                if st.session_state.auth_attempts >= MAX_LOGIN_ATTEMPTS:
+                    st.session_state.auth_locked_until = int(time.time()) + LOGIN_LOCKOUT_SECONDS
+                    st.error(
+                        f"❌ Too many failed attempts. Login locked for {LOGIN_LOCKOUT_SECONDS} seconds."
+                    )
+                else:
+                    st.error(f"❌ Invalid credentials. {remaining} attempts remaining.")
 
 def check_authentication():
     """Check if user is authenticated"""
@@ -299,6 +381,8 @@ with st.sidebar:
     st.write(f"👤 Logged in as: **{st.session_state.get('username', 'user')}**")
     if st.button("🚪 Logout", use_container_width=True):
         st.session_state.authenticated = False
+        st.session_state.auth_attempts = 0
+        st.session_state.auth_locked_until = 0
         st.session_state.messages = []
         st.success("Logged out successfully!")
         st.rerun()
