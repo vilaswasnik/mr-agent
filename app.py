@@ -13,7 +13,35 @@ from src.agents import Orchestrator
 from src import memory as mem
 from src.dice_client import DiceClient
 
-load_dotenv(override=True)
+
+def _load_runtime_secrets():
+    """Load secrets from local .env and Render Secret Files."""
+    # Do not override already-defined environment variables.
+    load_dotenv(override=False)
+
+    # Render Secret Files can expose a full .env file at /etc/secrets/.env
+    secret_env_file = Path("/etc/secrets/.env")
+    if secret_env_file.exists():
+        load_dotenv(dotenv_path=secret_env_file, override=False)
+
+    # Or individual secret files like /etc/secrets/GITHUB_TOKEN
+    for key in (
+        "GITHUB_TOKEN",
+        "OPENAI_API_KEY",
+        "APP_ADMIN_USERNAME",
+        "APP_ADMIN_PASSWORD",
+        "APP_ADMIN_PASSWORD_HASH",
+    ):
+        if os.getenv(key):
+            continue
+        key_file = Path(f"/etc/secrets/{key}")
+        if key_file.exists():
+            value = key_file.read_text(encoding="utf-8").strip()
+            if value:
+                os.environ[key] = value
+
+
+_load_runtime_secrets()
 
 st.set_page_config(page_title="Mr. Agent", page_icon="🤖", layout="wide")
 
@@ -24,10 +52,6 @@ PBKDF2_ITERATIONS = int(os.getenv("PASSWORD_HASH_ITERATIONS", "120000"))
 APP_ADMIN_USERNAME = os.getenv("APP_ADMIN_USERNAME", "").strip()
 APP_ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "")
 APP_ADMIN_PASSWORD_HASH = os.getenv("APP_ADMIN_PASSWORD_HASH", "").strip()
-
-# Optional code-level fallback (hashed only). Keep empty unless intentionally used.
-CODE_ADMIN_USERNAME = "admin"
-CODE_ADMIN_PASSWORD_HASH = "pbkdf2_sha256$120000$19d6bd957c04488ca10fa3881978ec5a$80176afaf0c0fa652a3f1600381d8237af6155dde876fc281c47b94e73759d67"
 
 
 def _hash_password(password):
@@ -98,12 +122,6 @@ def _authenticate_user(username, password):
             return _verify_password(password, APP_ADMIN_PASSWORD_HASH)
         if APP_ADMIN_PASSWORD:
             return hmac.compare_digest(password, APP_ADMIN_PASSWORD)
-
-    # Optional fallback: hardcoded hash in code (not recommended for public repos).
-    if CODE_ADMIN_USERNAME and CODE_ADMIN_PASSWORD_HASH:
-        if username != CODE_ADMIN_USERNAME:
-            return False
-        return _verify_password(password, CODE_ADMIN_PASSWORD_HASH)
 
     users = load_credentials()
     stored = users.get(username)
@@ -196,7 +214,7 @@ if not github_token or not openai_key or github_token.startswith("your_github"):
     st.error(
         "Missing required environment variables: "
         + ", ".join(missing)
-        + ". Set them in Render service settings (Environment)."
+        + ". Set them in Render Environment or Secret Files (/etc/secrets)."
     )
     st.stop()
 
