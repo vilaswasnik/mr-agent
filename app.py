@@ -25,6 +25,10 @@ APP_ADMIN_USERNAME = os.getenv("APP_ADMIN_USERNAME", "").strip()
 APP_ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "")
 APP_ADMIN_PASSWORD_HASH = os.getenv("APP_ADMIN_PASSWORD_HASH", "").strip()
 
+# Optional code-level fallback (hashed only). Keep empty unless intentionally used.
+CODE_ADMIN_USERNAME = ""
+CODE_ADMIN_PASSWORD_HASH = ""
+
 
 def _hash_password(password):
     """Return PBKDF2 hash string: pbkdf2_sha256$iters$salt$hash"""
@@ -94,6 +98,12 @@ def _authenticate_user(username, password):
             return _verify_password(password, APP_ADMIN_PASSWORD_HASH)
         if APP_ADMIN_PASSWORD:
             return hmac.compare_digest(password, APP_ADMIN_PASSWORD)
+
+    # Optional fallback: hardcoded hash in code (not recommended for public repos).
+    if CODE_ADMIN_USERNAME and CODE_ADMIN_PASSWORD_HASH:
+        if username != CODE_ADMIN_USERNAME:
+            return False
+        return _verify_password(password, CODE_ADMIN_PASSWORD_HASH)
 
     users = load_credentials()
     stored = users.get(username)
