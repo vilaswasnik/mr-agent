@@ -46,8 +46,8 @@ def login_page():
         st.markdown("---")
         st.write("### Login to Continue")
         
-        username = st.text_input("Username", key="login_user")
-        password = st.text_input("Password", type="password", key="login_pass")
+        username = st.text_input("Username", key="login_user", placeholder="Enter username")
+        password = st.text_input("Password", type="password", key="login_pass", placeholder="Enter password")
         
         if st.button("Login", use_container_width=True):
             credentials = load_credentials()
@@ -58,13 +58,6 @@ def login_page():
                 st.rerun()
             else:
                 st.error("❌ Invalid credentials. Please try again.")
-    
-    st.markdown("""
-    ---
-    **Demo Credentials:**
-    - Username: `admin`
-    - Password: `AaaraVero%&12345`
-    """)
 
 def check_authentication():
     """Check if user is authenticated"""
