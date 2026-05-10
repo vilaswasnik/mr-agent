@@ -4,6 +4,8 @@ import json
 from dotenv import load_dotenv
 from pathlib import Path
 from io import BytesIO
+import zipfile
+import xml.etree.ElementTree as ET
 import hashlib
 import hmac
 import time
@@ -441,11 +443,25 @@ def extract_resume_text(uploaded_file):
     if suffix == ".docx":
         try:
             from docx import Document
-        except Exception as exc:
-            raise RuntimeError("DOCX support requires 'python-docx'.") from exc
-        doc = Document(BytesIO(raw))
-        lines = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
-        return "\n".join(lines).strip()
+            doc = Document(BytesIO(raw))
+            lines = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+            return "\n".join(lines).strip()
+        except Exception:
+            # Fallback parser: extract visible text from word/document.xml.
+            try:
+                with zipfile.ZipFile(BytesIO(raw)) as zf:
+                    xml_bytes = zf.read("word/document.xml")
+                root = ET.fromstring(xml_bytes)
+                ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+                paragraphs = []
+                for para in root.findall(".//w:p", ns):
+                    runs = para.findall(".//w:t", ns)
+                    text = "".join(t.text for t in runs if t.text)
+                    if text.strip():
+                        paragraphs.append(text.strip())
+                return "\n".join(paragraphs).strip()
+            except Exception as exc:
+                raise RuntimeError("Could not read DOCX file. Please upload TXT or PDF.") from exc
 
     raise ValueError("Unsupported file type. Use .txt, .md, .pdf, or .docx")
 
