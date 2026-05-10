@@ -4,22 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
-    autoDeploy: true
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.1
-      - key: GITHUB_TOKEN
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-
-  - type: worker
-    name: mr-agent-watcher
-    env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py --dice-watch --dice-query "Red Hat Linux DevOps AI Automation Engineer" --dice-location "Remote" --dice-remote --dice-cycles 999999 --dice-interval 300
+    startCommand: python main.py --dice-watch --dice-query "Red Hat Linux DevOps AI Automation Engineer" --dice-location "Remote" --dice-remote --dice-cycles 999999 --dice-interval 300 & streamlit run app.py --server.port $PORT --server.address 0.0.0.0
     autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
