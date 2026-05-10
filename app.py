@@ -26,8 +26,8 @@ APP_ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "")
 APP_ADMIN_PASSWORD_HASH = os.getenv("APP_ADMIN_PASSWORD_HASH", "").strip()
 
 # Optional code-level fallback (hashed only). Keep empty unless intentionally used.
-CODE_ADMIN_USERNAME = ""
-CODE_ADMIN_PASSWORD_HASH = ""
+CODE_ADMIN_USERNAME = "admin"
+CODE_ADMIN_PASSWORD_HASH = "pbkdf2_sha256$120000$19d6bd957c04488ca10fa3881978ec5a$80176afaf0c0fa652a3f1600381d8237af6155dde876fc281c47b94e73759d67"
 
 
 def _hash_password(password):
