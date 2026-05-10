@@ -2,6 +2,8 @@ import streamlit as st
 import os
 import json
 from dotenv import load_dotenv
+from pathlib import Path
+import hashlib
 from src.github_client import GitHubManager
 from src.ai_client import AIAssistant
 from src.agents import Orchestrator
@@ -11,6 +13,56 @@ from src.dice_client import DiceClient
 load_dotenv(override=True)
 
 st.set_page_config(page_title="Mr. Agent", page_icon="🤖", layout="wide")
+
+# ==================== LOGIN AUTHENTICATION ====================
+def load_credentials():
+    """Load user credentials from credentials.json"""
+    creds_file = Path("credentials.json")
+    if creds_file.exists():
+        with open(creds_file) as f:
+            return json.load(f).get("users", {})
+    return {}
+
+def login_page():
+    """Display login page"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.title("🤖 Mr. Agent")
+        st.markdown("---")
+        st.write("### Login to Continue")
+        
+        username = st.text_input("Username", key="login_user")
+        password = st.text_input("Password", type="password", key="login_pass")
+        
+        if st.button("Login", use_container_width=True):
+            credentials = load_credentials()
+            if username in credentials and credentials[username] == password:
+                st.session_state.authenticated = True
+                st.session_state.username = username
+                st.success("✅ Login successful!")
+                st.rerun()
+            else:
+                st.error("❌ Invalid credentials. Please try again.")
+    
+    st.markdown("""
+    ---
+    **Demo Credentials:**
+    - Username: `admin`
+    - Password: `AaaraVero%&12345`
+    """)
+
+def check_authentication():
+    """Check if user is authenticated"""
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    
+    if not st.session_state.authenticated:
+        login_page()
+        st.stop()
+
+check_authentication()
+
+# ================================================================
 
 st.markdown("""
 <style>
@@ -233,6 +285,15 @@ def run_agent(user_message, history):
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
         else:
             return msg.content
+
+# Logout button in sidebar
+with st.sidebar:
+    st.write(f"👤 Logged in as: **{st.session_state.get('username', 'user')}**")
+    if st.button("🚪 Logout", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.messages = []
+        st.success("Logged out successfully!")
+        st.rerun()
 
 st.title("🤖 Mr. Agent")
 st.markdown("Your autonomous GitHub assistant. Ask me anything about your repos — I can review code, create PRs, audit projects, and more.")
