@@ -24,7 +24,16 @@ github_token = os.getenv("GITHUB_TOKEN", "").strip()
 openai_key = os.getenv("OPENAI_API_KEY", "").strip()
 
 if not github_token or not openai_key or github_token.startswith("your_github"):
-    st.error("API keys missing from .env")
+    missing = []
+    if not github_token or github_token.startswith("your_github"):
+        missing.append("GITHUB_TOKEN")
+    if not openai_key:
+        missing.append("OPENAI_API_KEY")
+    st.error(
+        "Missing required environment variables: "
+        + ", ".join(missing)
+        + ". Set them in Render service settings (Environment)."
+    )
     st.stop()
 
 @st.cache_resource
