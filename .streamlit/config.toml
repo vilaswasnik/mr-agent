@@ -1,0 +1,10 @@
+[server]
+headless = true
+port = 10000
+enableXsrfProtection = false
+
+[logger]
+level = "info"
+
+[client]
+showErrorDetails = true
